@@ -6,26 +6,29 @@
  * ========================================================= */
 
 // ---------------------------------------------------------
-// 玩家
+// 玩家（像素风勇者）
 // ---------------------------------------------------------
 class Player extends Phaser.Physics.Arcade.Sprite {
 
   constructor(scene, x, y) {
-    super(scene, x, y, 'tex-player'); // 'tex-player' 是 BootScene 里用代码画出来的占位图
+    super(scene, x, y, 'tex-player'); // 'tex-player' 是 BootScene 里画出来的像素勇者
 
-    // 把对象同时注册进"显示列表"和"物理系统"
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
-    this.power = CFG.player.startPower; // 头顶那个数值，就是他的"战力"
-    this.setCollideWorldBounds(true);   // 撞到战场边界会被挡住，不会跑出屏幕
+    this.power = CFG.player.startPower; // 头顶那个数字，就是他的"战力"
+    this.setCollideWorldBounds(true);   // 撞到世界边界会被挡住（草地墙是靠地图碰撞实现的）
 
-    // 两套键位：WASD 和 方向键，玩家用哪个都行
+    // 被撞开时的"硬直"结束时间戳（用毫秒时间表示）。
+    // 这个时间里键盘输入会被忽略，主角只能顺着刚才那一推滑出去。
+    this.lockedUntil = 0;
+
+    // 两套键位：WASD 和 方向键
     this.keys = scene.input.keyboard.addKeys('W,A,S,D');
     this.cursors = scene.input.keyboard.createCursorKeys();
 
     // 头顶的战力数字
-    this.label = scene.add.text(x, y - 30, String(this.power), {
+    this.label = scene.add.text(x, y - 26, String(this.power), {
       fontFamily: 'sans-serif',
       fontSize: '18px',
       color: '#8be9fd',
@@ -39,6 +42,14 @@ class Player extends Phaser.Physics.Arcade.Sprite {
 
   // 每一帧都会被 GameScene 调用一次
   update() {
+    // 0) 先看是不是还在"被弹开"的硬直时间里。
+    //    如果是，就不读键盘（否则下一帧立刻把速度改回走路速度，
+    //    刚才那一推就白推了），只同步一下头顶数字。
+    if (this.scene.time.now < this.lockedUntil) {
+      this.syncLabel();
+      return;
+    }
+
     // 1) 读键盘，得到方向（-1 / 0 / 1）
     let vx = 0;
     let vy = 0;
@@ -53,7 +64,7 @@ class Player extends Phaser.Physics.Arcade.Sprite {
       vy *= 0.7071;
     }
 
-    // 3) 把速度交给物理系统，主角就会动起来
+    // 3) 把速度交给物理系统，主角就会动起来；草地是墙，会自动把他挡住
     this.setVelocity(vx * CFG.player.speed, vy * CFG.player.speed);
 
     this.syncLabel();
@@ -65,12 +76,18 @@ class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.label) this.label.setText(String(this.power));
   }
 
-  // 让头顶数字一直跟着自己
-  syncLabel() {
-    if (this.label) this.label.setPosition(this.x, this.y - 30);
+  // 锁住键盘输入一小段时间（毫秒）
+  // 撞到"和自己一样大"的怪物时用：先让他被弹开一小段，这段时间玩家按键没用
+  lockInput(ms) {
+    this.lockedUntil = this.scene.time.now + ms;
   }
 
-  // 覆写销毁方法：销毁主角时顺手把头顶数字也销毁，避免残留文字
+  // 让头顶数字一直跟着自己
+  syncLabel() {
+    if (this.label) this.label.setPosition(this.x, this.y - 26);
+  }
+
+  // 覆写销毁方法：销毁主角时顺手把头顶数字也销毁
   destroy(fromScene) {
     if (this.label) {
       this.label.destroy();
@@ -82,83 +99,92 @@ class Player extends Phaser.Physics.Arcade.Sprite {
 
 // ---------------------------------------------------------
 // 怪物（小怪和 BOSS 共用一个类，用 isBoss 区分）
+//   - 站在路上挡路：不会移动，速度永远为 0
+//   - 用 texture 决定长相（史莱姆 / 哥布林 / 岩石怪 / 魅魔）
+//   - 外面套一圈"状态光环"：告诉玩家这只现在能不能打
+//     绿圈 = 能吃   红圈 = 会死   紫圈 = BOSS 能打   灰圈 = BOSS 打不过
 // ---------------------------------------------------------
 class Monster extends Phaser.Physics.Arcade.Sprite {
 
   /**
    * @param {Phaser.Scene} scene
-   * @param {number} x,y   出生坐标
+   * @param {number} x,y   所在格子的中心坐标
    * @param {number} power 头顶数值（战力）
-   * @param {object} opts  { isBoss: 是否BOSS, speed: 移动速度 }
+   * @param {object} opts  { isBoss: 是否BOSS, texture: 用哪张纹理 }
    */
   constructor(scene, x, y, power, opts = {}) {
     const isBoss = !!opts.isBoss;
-    super(scene, x, y, isBoss ? 'tex-boss' : 'tex-monster');
+    super(scene, x, y, opts.texture || (isBoss ? 'tex-boss-goblin' : 'tex-slime'));
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
     this.power = power;
     this.isBoss = isBoss;
-    this.isDead = false;      // 防止同一帧里被重复判定
-    this.speed = opts.speed || 60;
-    this.patrolTarget = null; // BOSS 巡逻用的"下一个目标点"
+    this.isDead = false;  // 防止同一帧里被重复判定
+
+    // 挡路怪：原地不动
+    this.setImmovable(true);
+    this.setVelocity(0, 0);
 
     // 头顶数字：BOSS 的数字更大更醒目
     this.label = scene.add.text(x, y, String(power), {
       fontFamily: 'sans-serif',
-      fontSize: isBoss ? '28px' : '18px',
+      fontSize: isBoss ? '26px' : '18px',
       color: '#ffffff',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 4
     }).setOrigin(0.5);
 
+    // 状态光环：一圈彩色描边（本身就是"空心的圆"，只有描边会显示出来）
+    this.halo = scene.add.circle(x, y, isBoss ? 29 : 21, 0xffffff, 0)
+      .setStrokeStyle(isBoss ? 4 : 3, 0xffffff, 0.95);
+
+    this.setThreat(false); // 先按"打不过"上色，GameScene 之后会重新算
     this.syncLabel();
   }
 
-  // 小怪开始随机游荡（注意：这个方法要在"加入怪物组"之后调用，
-  // 这样速度不会被组的默认值覆盖掉）
-  startRoaming() {
-    this.setCollideWorldBounds(true);
-    this.setBounce(1, 1); // 弹性 1 = 撞墙后原速反弹，天然实现"来回游荡"
-
-    const angle = Math.random() * Math.PI * 2; // 随机方向
-    this.setVelocity(Math.cos(angle) * this.speed, Math.sin(angle) * this.speed);
-  }
-
-  // 每一帧被 GameScene 调用
-  update() {
-    if (this.isDead) return;      // 已经死了就什么都不做
-    if (this.isBoss) this.patrol(); // BOSS 在区域内巡逻
-    this.syncLabel();
-  }
-
-  // BOSS 的巡逻：在 CFG.bossZone 里随机挑一个点走过去，走到了就再挑一个
-  patrol() {
-    const zone = CFG.bossZone;
-    const needNewTarget = !this.patrolTarget ||
-      Phaser.Math.Distance.Between(this.x, this.y, this.patrolTarget.x, this.patrolTarget.y) < 16;
-
-    if (needNewTarget) {
-      this.patrolTarget = {
-        x: Phaser.Math.Between(zone.x1, zone.x2),
-        y: Phaser.Math.Between(zone.y1, zone.y2)
-      };
-      // moveTo：以指定速度朝目标点移动
-      this.scene.physics.moveTo(this, this.patrolTarget.x, this.patrolTarget.y, this.speed);
+  /**
+   * 更新状态颜色
+   * @param {boolean} canBeat 主角战力是否【大于】它（大于 = 能吃）
+   * @param {boolean} isEqual 主角战力是否【等于】它（相等 = 撞上去会被弹开）
+   * 绿圈 = 能吃，红圈 = 会死，白圈 = 数值相同（撞不动），
+   * BOSS 则是 紫圈 = 能打 / 灰圈 = 打不过
+   */
+  setThreat(canBeat, isEqual) {
+    let color;
+    if (isEqual) {
+      color = CFG.color.equal;                 // 白圈：数值一样，撞上去只会被弹开
+    } else if (this.isBoss) {
+      color = canBeat ? CFG.color.boss : CFG.color.bossLocked;
+    } else {
+      color = canBeat ? CFG.color.edible : CFG.color.danger;
     }
+
+    if (this.halo) this.halo.setStrokeStyle(this.isBoss ? 4 : 3, color, 0.95);
+    if (this.label) this.label.setColor(Utils.hex(color)); // 数字也染成同一个颜色
+  }
+
+  // 每一帧被 GameScene 调用（目前只用来同步头顶数字和光环的位置）
+  update() {
+    if (this.isDead) return;
+    this.syncLabel();
   }
 
   // 被吃掉：缩小淡出后销毁
   kill() {
-    if (this.isDead) return;      // 已经死过了，直接返回
+    if (this.isDead) return;
     this.isDead = true;
 
     if (this.body) this.body.enable = false; // 立刻关掉碰撞体，防止同一帧重复触发
     if (this.label) {
       this.label.destroy();
       this.label = null;
+    }
+    if (this.halo) {
+      this.halo.destroy();
+      this.halo = null;
     }
 
     this.scene.tweens.add({
@@ -170,16 +196,21 @@ class Monster extends Phaser.Physics.Arcade.Sprite {
     });
   }
 
+  // 让数字浮在自己头顶上方，光环套在自己外面
   syncLabel() {
-    if (!this.label) return;
-    const offset = this.isBoss ? 52 : 26; // BOSS 个头大，数字要放得更高
-    this.label.setPosition(this.x, this.y - offset);
+    const offset = this.isBoss ? 40 : 26; // BOSS 个头大，数字要放得更高
+    if (this.label) this.label.setPosition(this.x, this.y - offset);
+    if (this.halo) this.halo.setPosition(this.x, this.y);
   }
 
   destroy(fromScene) {
     if (this.label) {
       this.label.destroy();
       this.label = null;
+    }
+    if (this.halo) {
+      this.halo.destroy();
+      this.halo = null;
     }
     super.destroy(fromScene);
   }
@@ -199,7 +230,10 @@ class Pickup extends Phaser.Physics.Arcade.Sprite {
     this.value = value;
     this.isDead = false;
 
-    // 头顶显示 "+数字"，让玩家一眼知道能加多少
+    this.setImmovable(true);
+    this.setVelocity(0, 0);
+
+    // 头顶显示 "+数字"
     this.label = scene.add.text(x, y - 22, '+' + value, {
       fontFamily: 'sans-serif',
       fontSize: '16px',
@@ -214,16 +248,9 @@ class Pickup extends Phaser.Physics.Arcade.Sprite {
       targets: this,
       y: y - 8,
       duration: 900,
-      yoyo: true,   // 来回摆动
-      repeat: -1    // 无限循环
+      yoyo: true,
+      repeat: -1
     });
-  }
-
-  // 固定住（要在"加入道具组"之后调用）
-  freeze() {
-    this.setImmovable(true);
-    this.body.setAllowGravity(false);
-    this.setVelocity(0, 0);
   }
 
   // 被捡到
