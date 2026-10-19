@@ -322,6 +322,11 @@ class BootScene extends Phaser.Scene {
     this.makeTileTextures();      // 草地 / 道路 / 终点 + 道具
     this.makeCharacterTextures(); // 主角 + 怪物 + BOSS
 
+    // 初始化 Web Audio API（纯代码合成 chiptune 音乐）
+    // 注意：这里只是创建 AudioContext，浏览器安全策略会让它处于 suspended 状态，
+    // 等用户第一次交互（MenuScene 按 Enter）时再 resume + 启动 BGM
+    AudioUtils.init();
+
     // 稍微停 0.4 秒再进菜单，让玩家看清"启动页"
     this.time.delayedCall(400, () => {
       this.scene.start('MenuScene');

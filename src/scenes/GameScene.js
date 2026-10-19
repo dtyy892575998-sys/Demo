@@ -152,6 +152,9 @@ class GameScene extends Phaser.Scene {
       if (this.gameEnded) return;
       this.scene.restart({ levelIndex: this.levelIndex, elapsedBefore: this.elapsedBefore });
     });
+
+    // ---------- 10) 启动战斗 chiptune BGM ----------
+    AudioUtils.playBgm('battle');
   }
 
   // ======================= 每帧更新 =======================
@@ -206,6 +209,8 @@ class GameScene extends Phaser.Scene {
 
     // 发射！
     p.playShootAnim();
+    // 8-bit 射箭发射声（高频"嗖" + 弓弦颤音）
+    AudioUtils.sfxShoot();
     this.currentArrow = new Projectile(
       this,
       p.x, p.y,
@@ -225,6 +230,9 @@ class GameScene extends Phaser.Scene {
     this.currentArrow = null; // 箭飞完了，可以射下一支
 
     if (this.gameEnded || !targetMonster || targetMonster.isDead) return;
+
+    // 8-bit 射箭击中声（方波"噗" + 高频脆响——无论打赢打不过都响一下）
+    AudioUtils.sfxArrowHit();
 
     const p = this.player;
     if (p.power > targetMonster.power) {
@@ -248,7 +256,8 @@ class GameScene extends Phaser.Scene {
       this.refreshThreatMarks();
 
       if (wasBoss) {
-        // BOSS 击杀：先播"万箭齐发"特效，再过关
+        // BOSS 击杀：播万箭齐发音效 + 万箭齐发视觉特效，再过关
+        AudioUtils.sfxArrowStorm();
         this.playBossKillEffect('bow', { x: targetMonster.x, y: targetMonster.y }, () => this.levelClear());
       }
 
@@ -324,6 +333,9 @@ class GameScene extends Phaser.Scene {
 
       console.log('[onTouchMonster] 打赢了', { gain, wasBoss, weapon: player.weaponType });
 
+      // 8-bit 击杀音效（短促下行 3 方波）
+      AudioUtils.sfxKill();
+
       // 攻击动画（拳头冲一下 / 剑劈一下）
       player.playAttackAnim(monster.x, monster.y);
 
@@ -334,6 +346,12 @@ class GameScene extends Phaser.Scene {
 
       if (wasBoss) {
         console.log('[onTouchMonster] BOSS 已死，开始播大招');
+        // 按武器类型播对应的 BOSS 大招音效
+        if (this.player.weaponType === 'bow') {
+          AudioUtils.sfxArrowStorm(); // 弓 = 万箭齐发
+        } else {
+          AudioUtils.sfxBossFinisher(); // 剑/拳头 = 剑刃风暴/万拳归宗的爆破音
+        }
         // BOSS 击杀：先播对应武器的大招特效，再过关
         this.playBossKillEffect(this.player.weaponType, { x: monster.x, y: monster.y }, () => {
           console.log('[BOSS特效 callback] 被触发！');
@@ -395,6 +413,8 @@ class GameScene extends Phaser.Scene {
     const v = item.value;
     item.kill();
     player.addPower(v);
+    // 8-bit 吃道具音效（上扬三连音"叮~"）
+    AudioUtils.sfxPickup();
     Utils.floatText(this, item.x, item.y - 20, '+' + v, '#ffd24d');
     this.refreshThreatMarks();
 
@@ -437,6 +457,10 @@ class GameScene extends Phaser.Scene {
   playerDead(killer) {
     if (this.gameEnded) return;
     this.gameEnded = true;
+
+    // 8-bit 死亡音效（长下行三角波"啊~~~"）
+    AudioUtils.sfxDeath();
+    AudioUtils.stopBgm(); // 停掉战斗 BGM（已经死了就别播了）
 
     this.cancelFlyingArrow();         // 取消正在飞的箭（否则箭飞一半场景就销毁了）
     this.physics.pause();            // 冻结所有物体
