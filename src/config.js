@@ -117,6 +117,19 @@ CFG.mapOffsetX = (CFG.width - CFG.mapCols * CFG.tileSize) / 2;
 CFG.mapOffsetY = CFG.playTop + ((CFG.height - CFG.playTop) - CFG.mapRows * CFG.tileSize) / 2;
 
 // ---------------------------------------------------------
+// 瓦片编号表（★ 想加/减草地变体，只改这里的数字就能决定"用几张"）
+// BootScene 按这张表去"烤"瓦片图集，GameScene 按这张表去挑该用第几号瓦片，
+// 两边共用一张表，编号就不会对不上。
+// ---------------------------------------------------------
+CFG.tiles = {
+  grass: [0, 1, 2, 3], // 4 张草地变体（编号 0~3），它们都会被设成"墙"
+  road: [4, 5, 6, 7],  // 4 张"四面都是路"时用的纯路面
+  curbStart: 8,        // 从 8 开始是 16 张"带路缘（马路牙子）"的路面：
+                       // 编号 = 8 + 四邻掩码，掩码 0~15 表示四面各挨着谁
+  goal: 24             // 终点格
+};
+
+// ---------------------------------------------------------
 // 2. 小工具函数
 // ---------------------------------------------------------
 const Utils = {
@@ -164,6 +177,64 @@ const Utils = {
     });
 
     return { grid: grid, start: start, spawns: spawns };
+  },
+
+  /**
+   * 【选瓦片】把 parseMap 的"粗网格"(0草地/1路/2终点)
+   * 换成"具体该用第几号瓦片"的网格，这样地图就不会是"一块方块反复贴"。
+   * 规则：
+   *   · 草地 → 从 CFG.tiles.grass 里随机挑一张变体
+   *   · 路   → 先看四个方向挨着的是不是路：
+   *             四面都是路 → 随机挑一张纯路面
+   *             只要有一面挨着草地 → 换成"那一面带路缘"的那张（编号 = curbStart + 掩码）
+   *   · 终点 → 固定用终点瓦片
+   */
+  decorateGrid(grid) {
+    const out = [];
+
+    for (let row = 0; row < grid.length; row++) {
+      const line = [];
+      for (let col = 0; col < grid[row].length; col++) {
+        const v = grid[row][col];
+
+        if (v === 1) {
+          // 四邻掩码：一位代表一个方向，值是 1 表示"那一面也是路"
+          //   +1 = 东(右)   +2 = 南(下)   +4 = 西(左)   +8 = 北(上)
+          let mask = 0;
+          if (this.isRoad(grid, col + 1, row)) mask += 1;
+          if (this.isRoad(grid, col, row + 1)) mask += 2;
+          if (this.isRoad(grid, col - 1, row)) mask += 4;
+          if (this.isRoad(grid, col, row - 1)) mask += 8;
+
+          if (mask === 15) {
+            line.push(Utils.pick(CFG.tiles.road)); // 四面都是路：纯路面
+          } else {
+            line.push(CFG.tiles.curbStart + mask); // 有挨着草地的一面：用对应的路缘瓦片
+          }
+        } else if (v === 2) {
+          line.push(CFG.tiles.goal);
+        } else {
+          line.push(Utils.pick(CFG.tiles.grass)); // 草地：随机变体
+        }
+      }
+      out.push(line);
+    }
+
+    return out;
+  },
+
+  // 判断某个格子算不算"路"（终点也算路；超出地图外也按路处理，
+  // 这样地图最边上的一圈不会莫名其妙长出"路缘"）
+  isRoad(grid, col, row) {
+    if (row < 0 || row >= grid.length) return true;
+    if (col < 0 || col >= grid[0].length) return true;
+    const v = grid[row][col];
+    return v === 1 || v === 2;
+  },
+
+  // 从一个数组里随机取一个元素（挑瓦片变体用）
+  pick(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
   },
 
   // 把"格子坐标"换算成"画面像素坐标"（格子中心点）

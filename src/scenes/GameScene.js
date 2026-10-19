@@ -10,8 +10,11 @@
  *
  * 地图是怎么画出来的？
  *   config.js 里每关都是一张"字符画"（'.'草地 '#'路 'S'起点 'B'终点 …），
- *   先用 Utils.parseMap 把它翻译成数字网格，再交给 Phaser 自带的 Tilemap
- *   （瓦片地图）渲染。其中 0 = 草地，会被设成"墙"，玩家走不进去。
+ *   第一步 Utils.parseMap 把它翻译成数字网格（0=草地 1=路 2=终点），
+ *   第二步 Utils.decorateGrid 再从瓦片图集里给每一格挑一张具体瓦片
+ *   （草地随机换变体、道路按四邻决定要不要画路缘），
+ *   最后交给 Phaser 自带的 Tilemap（瓦片地图）渲染。
+ *   其中 CFG.tiles.grass（0~3 号草地）会被设成"墙"，玩家走不进去。
  * ========================================================= */
 
 class GameScene extends Phaser.Scene {
@@ -49,23 +52,30 @@ class GameScene extends Phaser.Scene {
     const data = Utils.parseMap(level.map); // { grid, start, spawns }
     this.mapData = data;
 
+    // 【关键一步】再"选一次瓦片"：
+    //   把 0/1/2 这种粗网格，换成"具体该用第几号瓦片"，
+    //   草地会随机挑一张变体、道路会按四周是不是草地自动决定要不要画路缘。
+    //   这样每格长得略有不同，整张地图就不是"一块方块反复贴"了。
+    const painted = Utils.decorateGrid(data.grid);
+
     // make.tilemap：用"二维数字数组"直接生成一张瓦片地图
     this.map = this.make.tilemap({
-      data: data.grid,
+      data: painted,
       tileWidth: CFG.tileSize,
       tileHeight: CFG.tileSize
     });
 
-    // 把 BootScene 里"烤"好的瓦片图集（192x64，横向 3 格）注册给这张地图
+    // 把 BootScene 里"烤"好的瓦片图集注册给这张地图
     // 参数含义：瓦片名字, 纹理名, 单格宽, 单格高, 边距, 间距
     const tileset = this.map.addTilesetImage('tiles', 'tex-tiles', CFG.tileSize, CFG.tileSize, 0, 0);
 
     // createLayer：把第 0 层真正画到画面上，并整体偏移到居中位置
     this.mapLayer = this.map.createLayer(0, tileset, CFG.mapOffsetX, CFG.mapOffsetY);
 
-    // ★关键：把"草地"（瓦片编号 0）设成墙。
-    //   这样主角撞上去就会被挡住，只能沿着路（编号 1）和终点（编号 2）走。
-    this.mapLayer.setCollision([0]);
+    // ★关键：把"草地"的那几个编号（CFG.tiles.grass = 0~3）全部设成墙。
+    //   这样主角撞上去就会被挡住，只能沿着路（带路缘的那几种）和终点（24 号）走。
+    //   注意：草地现在有 4 种变体，所以要把 4 个编号一起传进去，不然随机换到别种变体的格子就变成能穿过去了。
+    this.mapLayer.setCollision(CFG.tiles.grass);
 
     // ---------- 4) 主角：出生在字符画里的 'S' 格中心 ----------
     const startPos = Utils.cellCenter(data.start.col, data.start.row);

@@ -200,41 +200,166 @@ class BootScene extends Phaser.Scene {
   }
 
   /**
-   * 用 Graphics（画笔）画出草地 / 道路 / 终点的瓦片图集
-   * 瓦片图集：一张 192x64 的长条，横向排 3 个 64x64 的格子
-   *   第 0 张（x=0）   = 草地（走不进去的墙）
-   *   第 1 张（x=64）  = 道路
-   *   第 2 张（x=128） = 终点
-   * 顺序不能改！GameScene 里就是用 0/1/2 来引用它们的
+   * 用 Graphics（画笔）画出草地 / 道路 / 终点的"瓦片图集"
+   * 瓦片图集：一张很长的横条，每 64 像素一张瓦片，编号从左到右 0、1、2、3……
+   *   编号 0~3   = 4 种草地变体（稍微不同的绿色和草叶分布，走不进去的墙）
+   *   编号 4~7   = 4 种"四面都是路"时用的纯路面
+   *   编号 8~23  = 16 张"带路缘"的路面（哪一侧挨着草地，哪一侧就画一道深深的马路牙子）
+   *   编号 24    = 终点
+   *
+   * 为什么要搞这么多张？
+   *   如果整张地图只用 1 张草地 + 1 张道路，120 个格子就会长得一模一样，
+   *   一眼就看得出"同一块方块反复贴"，很廉价。
+   *   现在：草地随机换变体、道路自动按"四邻"决定要不要画路缘，
+   *   路和草地的衔接就自然多了（而且相邻的格子不会因为随机而闪动，因为纹理只生成一次）。
+   *
+   * ★ 编号顺序由 config.js 的 CFG.tiles 决定，两边共用一张表，不会对不上。
    */
   makeTileTextures() {
     const g = this.add.graphics();
-    const size = CFG.tileSize; // 一个格子 64 像素
+    const size = CFG.tileSize;
 
-    // ---- 草地：绿色底 + 撒点小杂草 ----
-    g.fillStyle(0x2f7a3a, 1);
-    g.fillRect(0, 0, size, size);
-    g.fillStyle(0x3f9c4b, 1);
-    for (let i = 0; i < 46; i++) {
-      g.fillRect(Phaser.Math.Between(3, size - 5), Phaser.Math.Between(3, size - 5), 3, 3);
+    // ---- 1) 草地变体：深浅略微不同的 4 种绿 ----
+    const grassTones = [0x2f7a3a, 0x337f40, 0x2b7536, 0x3a8845];
+    CFG.tiles.grass.forEach((idx, i) => {
+      this.drawGrassTile(g, idx * size, grassTones[i % grassTones.length], i);
+    });
+
+    // ---- 2) 纯路面变体：四面都是路时随机挑一张 ----
+    const roadTones = [0x8a6b3f, 0x8f7043, 0x85663b, 0x94764a];
+    CFG.tiles.road.forEach((idx, i) => {
+      // 掩码 15 = 四面都挨着路 → 不画路缘，就是一张纯路面
+      this.drawRoadTile(g, idx * size, roadTones[i % roadTones.length], 15, i);
+    });
+
+    // ---- 3) 16 张带路缘的路面：编号 = curbStart + 掩码(0~15) ----
+    for (let mask = 0; mask < 16; mask++) {
+      this.drawRoadTile(
+        g,
+        (CFG.tiles.curbStart + mask) * size,
+        roadTones[mask % roadTones.length],
+        mask,
+        mask
+      );
     }
 
-    // ---- 道路：土黄底 + 撒点小石子 ----
-    g.fillStyle(0x8a6b3f, 1);
-    g.fillRect(size, 0, size, size);
-    g.fillStyle(0x9c7c4a, 1);
-    for (let i = 0; i < 46; i++) {
-      g.fillRect(size + Phaser.Math.Between(3, size - 5), Phaser.Math.Between(3, size - 5), 3, 3);
-    }
+    // ---- 4) 终点格 ----
+    this.drawGoalTile(g, CFG.tiles.goal * size);
 
-    // ---- 终点：金色底 + 白色方框，远远就能看见 ----
-    g.fillStyle(0xd9a62b, 1);
-    g.fillRect(size * 2, 0, size, size);
-    g.lineStyle(4, 0xffffff, 0.85);
-    g.strokeRect(size * 2 + 6, 6, size - 12, size - 12);
-
-    g.generateTexture('tex-tiles', size * 3, size);
+    // 整张图集的宽度 = (最后一号瓦片 + 1) * 64
+    g.generateTexture('tex-tiles', (CFG.tiles.goal + 1) * size, size);
     g.destroy();
+  }
+
+  /**
+   * 画一张草地瓦片
+   * @param {Phaser.GameObjects.Graphics} g 画笔
+   * @param {number} x0 这张瓦片在图集里的起始 x
+   * @param {number} tone 底色（不同的绿）
+   * @param {number} seed 变体编号（0~3）：用它算出不同的斑块/草叶位置
+   */
+  drawGrassTile(g, x0, tone, seed) {
+    const size = CFG.tileSize;
+
+    // 底色
+    g.fillStyle(tone, 1);
+    g.fillRect(x0, 0, size, size);
+
+    // 深色斑块（像草地上的一小片阴影/杂草）
+    g.fillStyle(0x26672e, 0.6);
+    for (let i = 0; i < 3; i++) {
+      const px = (seed * 17 + i * 23) % (size - 20);
+      const py = (seed * 11 + i * 31) % (size - 16);
+      g.fillRect(x0 + px, py, 16, 12);
+    }
+
+    // 亮色小草叶（用"假装随机"的算式定位，保证每次生成都在同一处，不会闪）
+    g.fillStyle(0x4cae5a, 1);
+    for (let i = 0; i < 18 + seed * 4; i++) {
+      const px = (i * 37 + seed * 19) % (size - 4);
+      const py = (i * 53 + seed * 29) % (size - 8);
+      g.fillRect(x0 + px, py, 3, 6); // 竖着的小草叶
+    }
+    for (let i = 0; i < 10; i++) {
+      const px = (i * 43 + seed * 13) % (size - 3);
+      const py = (i * 61 + seed * 41) % (size - 3);
+      g.fillRect(x0 + px, py, 3, 3); // 零星的小点
+    }
+  }
+
+  /**
+   * 画一张道路瓦片
+   * @param {number} mask 四邻掩码：某一位是 1 表示"那一面也是路"、不用画路缘
+   *                      +1=东(右)  +2=南(下)  +4=西(左)  +8=北(上)
+   * @param {number} seed 变体编号：用来让石子分布不一样
+   */
+  drawRoadTile(g, x0, tone, mask, seed) {
+    const size = CFG.tileSize;
+
+    // 土色底
+    g.fillStyle(tone, 1);
+    g.fillRect(x0, 0, size, size);
+
+    // 浅色小石子
+    g.fillStyle(0xa3855a, 1);
+    for (let i = 0; i < 16; i++) {
+      const px = (i * 41 + seed * 23) % (size - 6);
+      const py = (i * 59 + seed * 17) % (size - 6);
+      g.fillRect(x0 + px, py, 4, 3);
+    }
+    // 深色小坑洼
+    g.fillStyle(0x6f5430, 1);
+    for (let i = 0; i < 10; i++) {
+      const px = (i * 29 + seed * 11) % (size - 5);
+      const py = (i * 47 + seed * 37) % (size - 5);
+      g.fillRect(x0 + px, py, 3, 3);
+    }
+
+    // ---- 路缘（马路牙子）：只在"挨着草地"的那一侧画 ----
+    const w = 7;            // 路缘宽度
+    const curbColor = 0x5b472a; // 路缘本体
+    const edgeColor = 0x3a2c18; // 最外圈更深的一条线
+
+    if (!(mask & 1)) { // 东边是草地 → 在右边缘画
+      g.fillStyle(curbColor, 1);
+      g.fillRect(x0 + size - w, 0, w, size);
+      g.fillStyle(edgeColor, 1);
+      g.fillRect(x0 + size - 2, 0, 2, size);
+    }
+    if (!(mask & 2)) { // 南边是草地 → 在下边缘画
+      g.fillStyle(curbColor, 1);
+      g.fillRect(x0, size - w, size, w);
+      g.fillStyle(edgeColor, 1);
+      g.fillRect(x0, size - 2, size, 2);
+    }
+    if (!(mask & 4)) { // 西边是草地 → 在左边缘画
+      g.fillStyle(curbColor, 1);
+      g.fillRect(x0, 0, w, size);
+      g.fillStyle(edgeColor, 1);
+      g.fillRect(x0, 0, 2, size);
+    }
+    if (!(mask & 8)) { // 北边是草地 → 在上边缘画
+      g.fillStyle(curbColor, 1);
+      g.fillRect(x0, 0, size, w);
+      g.fillStyle(edgeColor, 1);
+      g.fillRect(x0, 0, size, 2);
+    }
+  }
+
+  // 画一张终点瓦片：金光闪闪的台子，一眼就能认出"这是终点"
+  drawGoalTile(g, x0) {
+    const size = CFG.tileSize;
+
+    g.fillStyle(0xd9a62b, 1);
+    g.fillRect(x0, 0, size, size);
+
+    // 中间亮一点，显得有厚度
+    g.fillStyle(0xf0c24a, 1);
+    g.fillRect(x0 + 7, 7, size - 14, size - 14);
+
+    // 白色方框
+    g.lineStyle(4, 0xffffff, 0.9);
+    g.strokeRect(x0 + 10, 10, size - 20, size - 20);
   }
 
   /**
