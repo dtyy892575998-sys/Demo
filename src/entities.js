@@ -19,6 +19,15 @@ class Player extends Phaser.Physics.Arcade.Sprite {
     this.power = CFG.player.startPower; // 头顶那个数字，就是他的"战力"
     this.setCollideWorldBounds(true);   // 撞到世界边界会被挡住（草地墙是靠地图碰撞实现的）
 
+    // ---- 武器状态 ----
+    // 'fist' = 赤手空拳（初始）
+    // 'sword' = 第一关拿到剑后，近战带挥剑特效
+    // 'bow' = 第二关拿到弓后，可远程射箭（2 格内）
+    this.weaponType = 'fist';
+
+    // 攻击动画中（true 时不再触发新的攻击动画，避免重复叠加）
+    this.isAttacking = false;
+
     // 被撞开时的"硬直"结束时间戳（用毫秒时间表示）。
     // 这个时间里键盘输入会被忽略，主角只能顺着刚才那一推滑出去。
     this.lockedUntil = 0;
@@ -50,6 +59,16 @@ class Player extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
+    // 0.5) 正在播放近战攻击动画时，也暂时不管键盘输入。
+    //      因为 playAttackAnim 里是用 tween 把主角"推出去再弹回来"，
+    //      如果这时 update 还在 setVelocity，会跟 tween 的位置变化打架，
+    //      导致攻击动作中途被拉回来、或者抖动。
+    if (this.isAttacking) {
+      this.setVelocity(0, 0);
+      this.syncLabel();
+      return;
+    }
+
     // 1) 读键盘，得到方向（-1 / 0 / 1）
     let vx = 0;
     let vy = 0;
@@ -74,6 +93,134 @@ class Player extends Phaser.Physics.Arcade.Sprite {
   addPower(value) {
     this.power += value;
     if (this.label) this.label.setText(String(this.power));
+  }
+
+  /**
+   * 装备武器（拾取到剑或弓时调用；也在关卡间恢复时调用）
+   * @param {string} wType 'sword' 或 'bow'
+   * @param {boolean} silent 为 true 时不播金色闪光和飘字提示——
+   *   用于关卡间"继承已有武器"（玩家已经在 L1 学会挥剑，L2 开始就有剑，
+   *   不需要再播一次"学会挥剑!"的提示）
+   */
+  equipWeapon(wType, silent = false) {
+    this.weaponType = wType;
+
+    if (!silent) {
+      // 装备特效：整个角色闪一下金色，表示"学到新技能"
+      this.setTintFill(0xffd24d);
+      this.scene.time.delayedCall(200, () => {
+        if (this && this.active) this.clearTint();
+      });
+
+      // 头顶飘字提示
+      const label = { sword: '学会挥剑!', bow: '学会射箭!' }[wType] || '';
+      if (label) Utils.floatText(this.scene, this.x, this.y - 40, label, '#ffd24d');
+    }
+  }
+
+  /**
+   * 近战攻击动画（拳头 / 剑）
+   * 每次近战击杀时先播放一下动画再把怪干掉
+   * @param {number} targetX 目标（被击杀的怪物）的 x
+   * @param {number} targetY 目标（被击杀的怪物）的 y
+   */
+  playAttackAnim(targetX, targetY) {
+    if (this.isAttacking) return; // 正在攻击中就不重复触发
+    this.isAttacking = true;
+
+    // 1) 计算朝向（从主角指向怪物的单位向量）
+    let dx = targetX - this.x;
+    let dy = targetY - this.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    dx /= len;
+    dy /= len;
+
+    // 2) 先向前冲一小段距离（lunge），再弹回来
+    //    duration 180ms 够快，不会觉得卡顿
+    const lungeDist = this.weaponType === 'sword' ? 16 : 10;
+    const startX = this.x;
+    const startY = this.y;
+
+    this.scene.tweens.add({
+      targets: this,
+      x: startX + dx * lungeDist,
+      y: startY + dy * lungeDist,
+      duration: 90,
+      yoyo: true,       // 冲出去再弹回来
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.isAttacking = false;
+      }
+    });
+
+    // 3) 武器特效
+    if (this.weaponType === 'sword') {
+      // 剑：在怪物位置画一道斜向的"剑光弧"——两段粗白线交叉
+      this.scene.time.delayedCall(50, () => {
+        const g = this.scene.add.graphics();
+        g.lineStyle(4, 0xffffff, 0.95);
+        // 第一道斜线（从怪物左上方到右下方）
+        g.beginPath();
+        g.moveTo(targetX - 16, targetY - 16);
+        g.lineTo(targetX + 16, targetY + 16);
+        g.strokePath();
+        // 第二道斜线（反向）
+        g.beginPath();
+        g.moveTo(targetX + 16, targetY - 16);
+        g.lineTo(targetX - 16, targetY + 16);
+        g.strokePath();
+        // 剑锋闪光（一个小的白色圆圈快速放大淡出）
+        g.fillStyle(0xffffff, 0.6);
+        g.fillCircle(targetX, targetY, 12);
+
+        // 150ms 后销毁剑光
+        this.scene.tweens.add({
+          targets: g,
+          alpha: 0,
+          scaleX: 1.4,
+          scaleY: 1.4,
+          duration: 160,
+          onComplete: () => g.destroy()
+        });
+      });
+    } else {
+      // 拳头：怪物位置闪一个小拳头标记（"啪"的一下）
+      this.scene.time.delayedCall(50, () => {
+        const g = this.scene.add.graphics();
+        g.fillStyle(0xffffff, 0.7);
+        g.fillCircle(targetX, targetY, 8);
+        this.scene.tweens.add({
+          targets: g,
+          alpha: 0,
+          scaleX: 1.8,
+          scaleY: 1.8,
+          duration: 140,
+          onComplete: () => g.destroy()
+        });
+      });
+    }
+  }
+
+  /**
+   * 弓射击动画：角色拉弓（身体微微一缩）然后发射
+   * 箭本身由 Projectile 类单独负责飞行和命中
+   */
+  playShootAnim() {
+    // 身体先缩一下（scaleY 压到 0.9）然后立刻弹回来，表示"拉弓+放箭"
+    this.scene.tweens.add({
+      targets: this,
+      scaleY: 0.85,
+      scaleX: 1.05,
+      duration: 70,
+      yoyo: true,
+      ease: 'Quad.easeOut'
+    });
+
+    // 整个角色微微闪一下白（放箭瞬间的冲击力）
+    this.setTintFill(0xffffff);
+    this.scene.time.delayedCall(80, () => {
+      if (this && this.active) this.clearTint();
+    });
   }
 
   // 锁住键盘输入一小段时间（毫秒）
@@ -221,8 +368,16 @@ class Monster extends Phaser.Physics.Arcade.Sprite {
 // ---------------------------------------------------------
 class Pickup extends Phaser.Physics.Arcade.Sprite {
 
-  constructor(scene, x, y, value) {
-    super(scene, x, y, 'tex-item');
+  /**
+   * @param {Phaser.Scene} scene
+   * @param {number} x,y   所在格子的中心坐标
+   * @param {number} value 捡到后主角加多少战力
+   * @param {string} texture 道具纹理 key，例如 'tex-item-sword'。
+   *                         默认 'tex-item'（旧版金色菱形），
+   *                         实际运行时 GameScene 会按关卡 itemTextures 数组传进来
+   */
+  constructor(scene, x, y, value, texture = 'tex-item') {
+    super(scene, x, y, texture);
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -275,5 +430,111 @@ class Pickup extends Phaser.Physics.Arcade.Sprite {
       this.label = null;
     }
     super.destroy(fromScene);
+  }
+}
+
+// ---------------------------------------------------------
+// 箭（远程投射物，弓武器发射）
+//   - 用 Graphics 画一支简单的箭：银灰色箭头 + 深色箭身 + 两根尾羽
+//   - 不是 Sprite，没有物理碰撞体（箭穿过草地/墙也没关系）
+//   - 创建后直接用 tween 飞向目标点，到达时调用回调
+// ---------------------------------------------------------
+class Projectile {
+
+  /**
+   * @param {Phaser.Scene} scene
+   * @param {number} x0 起点（主角中心）
+   * @param {number} y0 起点
+   * @param {number} tx 目标 x（通常是被瞄准的怪物中心）
+   * @param {number} ty 目标 y
+   * @param {Function} onHit 到达目标后回调，参数：() => void
+   */
+  constructor(scene, x0, y0, tx, ty, onHit) {
+    this.scene = scene;
+    this.onHit = onHit;
+    this.destroyed = false;
+
+    // 计算方向角（弧度），用来旋转整支箭
+    const angle = Math.atan2(ty - y0, tx - x0);
+
+    // 箭纹理已经在 BootScene.makeCharacterTextures() 里一次性生成好了，
+    // 名字是 'tex-arrow-proj'，直接用就行，不用每次 generateTexture。
+    this.sprite = scene.add.sprite(x0, y0, 'tex-arrow-proj');
+    // 旋转：generateTexture 时箭朝右画的，所以角度直接用 atan2 转度数
+    this.sprite.setAngle(Phaser.Math.RadToDeg(angle));
+
+    // tween 飞到目标点：距离决定速度——近的快、远的稍慢，但都 <= 250ms
+    const dist = Math.sqrt((tx - x0) ** 2 + (ty - y0) ** 2);
+    const duration = Math.min(Math.max(80, dist * 1.6), 240);
+
+    scene.tweens.add({
+      targets: this.sprite,
+      x: tx,
+      y: ty,
+      duration: duration,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        // 飞到了 → 播放命中特效 + 回调 + 销毁
+        this.playHitEffect(tx, ty);
+        if (this.onHit) this.onHit();
+        this.destroy();
+      }
+    });
+  }
+
+  /**
+   * 在 Graphics 上画一支向右的箭（generateTexture 之后会成为 tex-arrow-proj）
+   *   箭头朝右 → 旋转时方向 = Math.atan2 结果
+   */
+  drawArrow(g) {
+    // 深灰箭身（水平线，左到右）
+    g.lineStyle(3, 0x3a3a3a, 1);
+    g.beginPath();
+    g.moveTo(2, 4);
+    g.lineTo(20, 4);
+    g.strokePath();
+
+    // 银色箭头（三角形）
+    g.fillStyle(0xc9cdd3, 1);
+    g.fillTriangle(24, 4, 18, 0, 18, 8);
+
+    // 两根尾羽（左侧的小三角）
+    g.fillStyle(0x8b5a2b, 1);     // 棕色尾羽
+    g.fillTriangle(2, 4, 0, 0, 6, 3);
+    g.fillTriangle(2, 4, 0, 8, 6, 5);
+  }
+
+  // 命中特效：目标点闪一下金色星花 + 小圆圈扩散
+  playHitEffect(x, y) {
+    const g = this.scene.add.graphics();
+    g.fillStyle(0xffd24d, 0.9);
+    g.fillCircle(x, y, 14);
+    g.lineStyle(3, 0xffffff, 1);
+    g.strokeCircle(x, y, 10);
+
+    this.scene.tweens.add({
+      targets: g,
+      alpha: 0,
+      scaleX: 1.6,
+      scaleY: 1.6,
+      duration: 200,
+      onComplete: () => g.destroy()
+    });
+  }
+
+  // 外部可以用来取消箭飞行（比如主角刚发射、还没飞到，场景就结束了）
+  cancel() {
+    if (this.destroyed) return;
+    this.scene.tweens.killTweensOf(this.sprite);
+    this.destroy();
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    if (this.sprite) {
+      this.sprite.destroy();
+      this.sprite = null;
+    }
   }
 }

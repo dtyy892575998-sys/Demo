@@ -45,7 +45,14 @@ const PIXEL_PALETTE = {
   p: 0x9d6bff, // 浅紫（魅魔头发、翅膀）
   P: 0x5f2ab3, // 深紫（魅魔裙子、靴子）
   e: 0xff9ec4, // 粉（魅魔犄角、裙摆）
-  q: 0xffd3e3 // 浅粉（魅魔皮肤）
+  q: 0xffd3e3, // 浅粉（魅魔皮肤）
+  // ---- 6 种武器道具专用颜色 ----
+  m: 0xc9cdd3, // 金属银（剑刃、箭头、玻璃高光、宝石高光）
+  F: 0xb08a5a, // 青铜色（鼎身、剑柄装饰）
+  x: 0xf5e6b0, // 卷轴纸色（泛黄的古卷纸）
+  u: 0xd4af37, // 真金色（护符外框、剑护手、卷轴装饰边）
+  i: 0x4aa34a, // 深青绿（药瓶里的神秘液体）
+  v: 0x9966cc  // 紫色宝石（护符中心的魔晶）
 };
 
 // ---------------------------------------------------------
@@ -150,6 +157,128 @@ const ART_SUCCUBUS = [
   '..keeeeeeeeeek..',
   '...kqqk..kqqk...',
   '...kPPk..kPPk...'
+];
+
+// ---- 以下 6 种是武器/道具图案，每种 16×16 字符画 ----
+
+// 剑（sword）：垂直长剑，剑尖朝上。银色剑身、金色护手、木质剑柄
+const ART_SWORD = [
+  '................',
+  '.......kmk......',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '......kmmmk.....',
+  '.....kmmmmmk....',
+  '....kuuuuuuuuk..',
+  '.....kmmmmk.....',
+  '......knnnk.....',
+  '......knnnk.....',
+  '......kFFFk.....'
+];
+
+// 弓（bow）：C 形弓身朝右开口，中间穿过一支银箭头的箭
+const ART_BOW = [
+  '................',
+  '......kk........',
+  '.....knnk.......',
+  '....knNNnk......',
+  '...knNNNNnk.....',
+  '...kNmmmmmmmm...',
+  '...kNwwwwwwww...',
+  '...kNwwwwwwww...',
+  '...kNwwwwwwww...',
+  '...kNwwwwwwww...',
+  '...kNwwwwwwww...',
+  '...kNwwwwwwww...',
+  '....knNNnk......',
+  '.....knnk.......',
+  '......kk........',
+  '................'
+];
+
+// 鼎（ding）：古代方形青铜鼎，左右两只耳、四条腿、鼎内有深色
+const ART_DING = [
+  '................',
+  '..kFk......kFk..',
+  '..kFkkkkkkkFk...',
+  '.kFFFFFFFFFFFk..',
+  '.kFdddddddFFk...',
+  '.kFdddddddFFk...',
+  '.kFdddddddFFk...',
+  '.kFFFFFFFFFFFk..',
+  '.kFFFFFFFFFFFk..',
+  '.kuuuuuuuuuuuk..',
+  '.kFFFFFFFFFFFk..',
+  '.kFkkkkkkkkFk...',
+  '.kkkkkkkkkkkkk..',
+  '.kk........kk...',
+  '.kk........kk...',
+  '.kk........kk...'
+];
+
+// 卷轴（scroll）：横向放置的古卷轴，两端深棕色轴，泛黄纸身写有深色字
+const ART_SCROLL = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '..kNNuuuuuuNNk..',
+  '..kNxxxxxxxxNNk.',
+  '..kNxdxxdxdxNNk.',
+  '..kNxddddddxNNk.',
+  '..kNxdxxdxdxNNk.',
+  '..kNxxxxxxxxNNk.',
+  '..kNNuuuuuuNNk..',
+  '................',
+  '................',
+  '................',
+  '................',
+  '................'
+];
+
+// 药瓶（potion）：玻璃瓶 + 绿色神秘液体 + 软木塞，有气泡和高光
+const ART_POTION = [
+  '................',
+  '......kkk.......',
+  '.....kuuuuk.....',
+  '.....kuuuuk.....',
+  '......kNk.......',
+  '......kmk.......',
+  '.....kiiiiik....',
+  '....kiiiwwiiik..',
+  '....kiwwwwwwik..',
+  '....kiiiiiiiiiik',
+  '....kiiiiiiiiiik',
+  '....kiiiiiiiiiik',
+  '....kiiiiiiiiiik',
+  '.....kkkkkkk....',
+  '......kkk.......',
+  '................'
+];
+
+// 护符（amulet）：圆形金色外框吊坠 + 中心紫色魔晶 + 深棕挂绳
+const ART_AMULET = [
+  '......NkNk......',
+  '......kNk.......',
+  '......NkNk......',
+  '.....kNNNNNk....',
+  '....kuuuuuuuuk..',
+  '...kuvvvvvvvvuk.',
+  '...kuvvwmwvvwuk.',
+  '...kuvvvvvvvvuk.',
+  '...kuvvvvvvvvuk.',
+  '...kuvvvvvvvvuk.',
+  '....kuuuuuuuuk..',
+  '.....kNNNNNk....',
+  '................',
+  '................',
+  '................',
+  '................'
 ];
 
 class BootScene extends Phaser.Scene {
@@ -382,17 +511,34 @@ class BootScene extends Phaser.Scene {
     this.bakePixelArt('tex-boss-rock', ART_ROCK, 3);
     this.bakePixelArt('tex-boss-succubus', ART_SUCCUBUS, 3);
 
-    // 金色道具：白色菱形占位图（运行时会被染成金色）
-    const g = this.add.graphics();
-    g.fillStyle(0xffffff, 1);
-    g.fillPoints([
-      { x: 12, y: 0 },
-      { x: 24, y: 12 },
-      { x: 12, y: 24 },
-      { x: 0, y: 12 }
-    ], true);
-    g.generateTexture('tex-item', 24, 24);
-    g.destroy();
+    // ---- 6 种不同图案的道具（武器/法器）----
+    // 统一命名为 'tex-item-xxx'，GameScene 按 config.js 里的 itemTextures 数组取对应图案
+    // 像素大小用 px=1.5（16×1.5=24 像素），比角色小一号，正好适合摆在道路格子里
+    this.bakePixelArt('tex-item-sword', ART_SWORD, 1.5);  // 剑：银色剑身 + 金色护手
+    this.bakePixelArt('tex-item-bow', ART_BOW, 1.5);      // 弓：C 形弓身 + 穿过的箭
+    this.bakePixelArt('tex-item-ding', ART_DING, 1.5);    // 鼎：青铜方鼎 + 双耳四足
+    this.bakePixelArt('tex-item-scroll', ART_SCROLL, 1.5); // 卷轴：古卷 + 深棕轴 + 上面有字
+    this.bakePixelArt('tex-item-potion', ART_POTION, 1.5); // 药瓶：玻璃瓶 + 绿色液体 + 气泡
+    this.bakePixelArt('tex-item-amulet', ART_AMULET, 1.5); // 护符：金框 + 紫色魔晶 + 挂绳
+
+    // 箭投射物纹理：用 Graphics 画一支向右的箭（28×8 像素）
+    // 放在这里一次性生成，避免 Projectile 每发射一支箭就 regenerate 一次（key 冲突报错）
+    const arrow = this.add.graphics();
+    // 深灰箭身（水平线）
+    arrow.lineStyle(3, 0x3a3a3a, 1);
+    arrow.beginPath();
+    arrow.moveTo(2, 4);
+    arrow.lineTo(20, 4);
+    arrow.strokePath();
+    // 银色箭头（三角形）
+    arrow.fillStyle(0xc9cdd3, 1);
+    arrow.fillTriangle(24, 4, 18, 0, 18, 8);
+    // 棕色尾羽
+    arrow.fillStyle(0x8b5a2b, 1);
+    arrow.fillTriangle(2, 4, 0, 0, 6, 3);
+    arrow.fillTriangle(2, 4, 0, 8, 6, 5);
+    arrow.generateTexture('tex-arrow-proj', 28, 8);
+    arrow.destroy();
   }
 
   /**
