@@ -24,6 +24,7 @@ class Player extends Phaser.Physics.Arcade.Sprite {
     // 'sword' = 第一关拿到剑后，近战带挥剑特效
     // 'bow' = 第二关拿到弓后，可远程射箭（2 格内）
     this.weaponType = 'fist';
+    this.weaponGfx = null;  // 武器图标的 Graphics 对象（画在玩家身上）
 
     // 攻击动画中（true 时不再触发新的攻击动画，避免重复叠加）
     this.isAttacking = false;
@@ -51,6 +52,9 @@ class Player extends Phaser.Physics.Arcade.Sprite {
 
   // 每一帧都会被 GameScene 调用一次
   update() {
+    // ★ 武器图标每帧跟着玩家位置（必须第一行就调，因为后面可能有 early return）
+    this._syncWeaponGfx();
+
     // 0) 先看是不是还在"被弹开"的硬直时间里。
     //    如果是，就不读键盘（否则下一帧立刻把速度改回走路速度，
     //    刚才那一推就白推了），只同步一下头顶数字。
@@ -105,6 +109,9 @@ class Player extends Phaser.Physics.Arcade.Sprite {
   equipWeapon(wType, silent = false) {
     this.weaponType = wType;
 
+    // ★ 给玩家身上画出武器图标（赤手时清除）
+    this._drawWeaponOnBody();
+
     if (!silent) {
       // 装备特效：整个角色闪一下金色，表示"学到新技能"
       this.setTintFill(0xffd24d);
@@ -115,6 +122,72 @@ class Player extends Phaser.Physics.Arcade.Sprite {
       // 头顶飘字提示
       const label = { sword: '学会挥剑!', bow: '学会射箭!' }[wType] || '';
       if (label) Utils.floatText(this.scene, this.x, this.y - 40, label, '#ffd24d');
+    }
+  }
+
+  /**
+   * 在玩家身上画武器小图标（剑/弓），让玩家一眼看到自己装备了什么
+   * 图标的 Graphics 对象定位在玩家身上，update() 里 setPosition 跟着走
+   */
+  _drawWeaponOnBody() {
+    // 先清掉旧的（如果有）
+    if (this.weaponGfx) { this.weaponGfx.destroy(); this.weaponGfx = null; }
+
+    if (this.weaponType === 'fist') return;
+
+    // ★ Graphics 定位在玩家中心，所有绘制用相对坐标（12,4 = 右侧腰间）
+    const g = this.scene.add.graphics().setDepth(this.depth + 1).setPosition(this.x, this.y);
+    const ox = 12;
+    const oy = 4;
+
+    if (this.weaponType === 'sword') {
+      // 小剑：金色剑锋 + 深色剑柄，斜向挂在身上
+      g.lineStyle(3, 0xffe066, 1);  // 金色剑锋
+      g.beginPath();
+      g.moveTo(ox - 10, oy + 10);   // 剑尖（下）
+      g.lineTo(ox + 8, oy - 8);     // 剑柄（上）
+      g.strokePath();
+      // 剑柄（深色）
+      g.lineStyle(3, 0x3d2817, 1);
+      g.beginPath();
+      g.moveTo(ox + 6, oy - 6);
+      g.lineTo(ox + 10, oy - 10);
+      g.strokePath();
+      // 护手（金色剑格）
+      g.lineStyle(2, 0xc9a227, 1);
+      g.beginPath();
+      g.moveTo(ox + 4, oy - 4);
+      g.lineTo(ox + 8, oy - 8);
+      g.strokePath();
+    } else if (this.weaponType === 'bow') {
+      // 小弓：弧形弓身 + 弓弦 + 搭在上面的箭
+      g.lineStyle(3, 0x8b5a2b, 1);  // 棕色弓身
+      g.beginPath();
+      g.arc(ox + 2, oy - 2, 10, Math.PI * 0.25, Math.PI * 0.75, false);
+      g.strokePath();
+      // 弓弦（白色）
+      g.lineStyle(1, 0xeeeeee, 0.9);
+      g.beginPath();
+      g.moveTo(ox + 9, oy - 8);
+      g.lineTo(ox + 9, oy + 5);
+      g.strokePath();
+      // 一支小箭搭在弓上
+      g.lineStyle(1, 0xaaaaaa, 1);
+      g.beginPath();
+      g.moveTo(ox - 2, oy - 1);
+      g.lineTo(ox + 10, oy - 1);
+      g.strokePath();
+    }
+
+    this.weaponGfx = g;
+  }
+
+  /** 让武器图标跟着玩家位置移动（每帧 update 调用） */
+  _syncWeaponGfx() {
+    if (this.weaponGfx) {
+      this.weaponGfx.setPosition(this.x, this.y);
+      // 武器图标在玩家上层绘制
+      this.weaponGfx.setDepth(this.depth + 1);
     }
   }
 
@@ -137,7 +210,10 @@ class Player extends Phaser.Physics.Arcade.Sprite {
 
     // 2) 先向前冲一小段距离（lunge），再弹回来
     //    duration 180ms 够快，不会觉得卡顿
-    const lungeDist = this.weaponType === 'sword' ? 16 : 10;
+    //    剑冲更远（劈砍动作幅度大），弓和拳头短（近身/远程不需要大动作）
+    const lungeDist = this.weaponType === 'sword' ? 26
+                    : this.weaponType === 'bow' ? 6
+                    : 10;
     const startX = this.x;
     const startY = this.y;
 
@@ -155,38 +231,93 @@ class Player extends Phaser.Physics.Arcade.Sprite {
 
     // 3) 武器特效
     if (this.weaponType === 'sword') {
-      // 剑：在怪物位置画一道斜向的"剑光弧"——两段粗白线交叉
-      this.scene.time.delayedCall(50, () => {
-        const g = this.scene.add.graphics();
-        g.lineStyle(4, 0xffffff, 0.95);
-        // 第一道斜线（从怪物左上方到右下方）
-        g.beginPath();
-        g.moveTo(targetX - 16, targetY - 16);
-        g.lineTo(targetX + 16, targetY + 16);
-        g.strokePath();
-        // 第二道斜线（反向）
-        g.beginPath();
-        g.moveTo(targetX + 16, targetY - 16);
-        g.lineTo(targetX - 16, targetY + 16);
-        g.strokePath();
-        // 剑锋闪光（一个小的白色圆圈快速放大淡出）
-        g.fillStyle(0xffffff, 0.6);
-        g.fillCircle(targetX, targetY, 12);
+      // 剑劈砍：主角身体先缩一下再弹回来（"挥剑"的肢体感）
+      this.scene.tweens.add({
+        targets: this,
+        scaleX: 1.3, scaleY: 0.8, duration: 60, yoyo: true, ease: 'Quad.easeOut'
+      });
 
-        // 150ms 后销毁剑光
+      // 剑光特效组
+      this.scene.time.delayedCall(50, () => {
+        const g = this.scene.add.graphics().setDepth(90);
+
+        // ---- 金色剑锋（内弧，亮金）----
+        g.lineStyle(5, 0xffe066, 1);
+        g.beginPath();
+        g.moveTo(targetX - 24, targetY - 12);
+        g.lineTo(targetX + 24, targetY + 12);
+        g.strokePath();
+
+        // ---- 白色剑光（外弧，交叉）----
+        g.lineStyle(4, 0xffffff, 0.95);
+        g.beginPath();
+        g.moveTo(targetX + 20, targetY - 20);
+        g.lineTo(targetX - 20, targetY + 20);
+        g.strokePath();
+
+        // ---- 剑锋闪光（两圈叠加：内实外虚）----
+        g.fillStyle(0xffffff, 0.85);
+        g.fillCircle(targetX, targetY, 14);
+        g.fillStyle(0xffe066, 0.5);
+        g.fillCircle(targetX, targetY, 22);
+
+        // ---- 十字星芒爆炸 ----
+        g.lineStyle(2, 0xffffff, 0.9);
+        const stars = 8;
+        for (let i = 0; i < stars; i++) {
+          const ang = (i / stars) * Math.PI * 2;
+          const r1 = 18, r2 = 36;
+          g.beginPath();
+          g.moveTo(targetX + Math.cos(ang) * r1, targetY + Math.sin(ang) * r1);
+          g.lineTo(targetX + Math.cos(ang) * r2, targetY + Math.sin(ang) * r2);
+          g.strokePath();
+        }
+
+        // 快速放大+淡出+销毁
         this.scene.tweens.add({
           targets: g,
           alpha: 0,
-          scaleX: 1.4,
-          scaleY: 1.4,
-          duration: 160,
+          scaleX: 1.6,
+          scaleY: 1.6,
+          angle: 18,
+          duration: 220,
+          ease: 'Quad.easeIn',
+          onComplete: () => g.destroy()
+        });
+      });
+
+      // 剑光"咔嚓"的屏幕闪白（一个小矩形覆盖画面）
+      this.scene.time.delayedCall(60, () => {
+        const flash = this.scene.add.rectangle(0, 0, CFG.width, CFG.height, 0xffffff, 0.35)
+          .setOrigin(0).setDepth(95);
+        this.scene.tweens.add({
+          targets: flash, alpha: 0, duration: 80, onComplete: () => flash.destroy()
+        });
+      });
+    } else if (this.weaponType === 'bow') {
+      // 弓击杀：命中时在怪物位置画一个靶心（小+大两个圈 + 十字准星）
+      this.scene.time.delayedCall(50, () => {
+        const g = this.scene.add.graphics().setDepth(90);
+        g.lineStyle(3, 0xffd24d, 0.9);
+        g.strokeCircle(targetX, targetY, 16);
+        g.lineStyle(2, 0xffffff, 0.9);
+        g.strokeCircle(targetX, targetY, 8);
+        // 十字准星
+        g.lineStyle(1, 0xffffff, 0.7);
+        g.beginPath();
+        g.moveTo(targetX - 12, targetY); g.lineTo(targetX + 12, targetY);
+        g.moveTo(targetX, targetY - 12); g.lineTo(targetX, targetY + 12);
+        g.strokePath();
+
+        this.scene.tweens.add({
+          targets: g, alpha: 0, scaleX: 1.5, scaleY: 1.5, duration: 200,
           onComplete: () => g.destroy()
         });
       });
     } else {
       // 拳头：怪物位置闪一个小拳头标记（"啪"的一下）
       this.scene.time.delayedCall(50, () => {
-        const g = this.scene.add.graphics();
+        const g = this.scene.add.graphics().setDepth(90);
         g.fillStyle(0xffffff, 0.7);
         g.fillCircle(targetX, targetY, 8);
         this.scene.tweens.add({

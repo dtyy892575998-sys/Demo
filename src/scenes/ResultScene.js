@@ -30,6 +30,12 @@ class ResultScene extends Phaser.Scene {
   create() {
     const r = this.result;
 
+    // ★ 重置摄像机：固定到结算视口（不跟随、不移动）
+    // 这样 GameScene 之前的大地图摄像机不会截掉结算画面
+    this.cameras.main.stopFollow();
+    this.cameras.main.setBounds(0, 0, CFG.width, CFG.height);
+    this.cameras.main.setScroll(0, 0);
+
     // 启动结算 chiptune BGM（胜利/失败的悠扬大调）
     AudioUtils.playBgm('result');
 

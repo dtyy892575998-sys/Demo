@@ -56,6 +56,19 @@ class GameScene extends Phaser.Scene {
     // 弓射程：2 格 = 2 × 64 像素 = 128
     this.bowRange = CFG.tileSize * 2;
 
+    // ---- 武器持有记录 ----
+    // 玩家拿到过的所有武器（Set 去重），用于 Shift 切换
+    // 例如 L2 玩家持有剑+弓 → ownedWeapons = Set{'sword','bow'}
+    this.ownedWeapons = new Set();
+    if (this.carriedWeapon && this.carriedWeapon !== 'fist') {
+      this.ownedWeapons.add(this.carriedWeapon);
+    }
+    // Shift 按键防抖：上一帧是否按下（Phaser 的 Key 会一直返回 isDown=true）
+    this._shiftWasDown = false;
+
+    // ★ 对话框开关：打开时暂停所有游戏逻辑
+    this.dialogOpen = false;
+
     const level = CFG.levels[this.levelIndex];
 
     // ---------- 1) 背景：地图铺满整个世界 ----------
@@ -162,12 +175,22 @@ class GameScene extends Phaser.Scene {
       this.scene.restart({ levelIndex: this.levelIndex, elapsedBefore: this.elapsedBefore });
     });
 
+    // ---------- 9.5) 按 Shift 切换武器（需要同时持有剑和弓）----------
+    // 用 Phaser 键盘事件的"边沿触发"——只在按下瞬间触发一次
+    // 避免按住 Shift 时每帧都切（一秒切几十次直接乱套）
+    this.input.keyboard.on('keydown-SHIFT', () => {
+      if (this.gameEnded) return;
+      this._trySwitchWeapon();
+    });
+
     // ---------- 10) 启动战斗 chiptune BGM ----------
     AudioUtils.playBgm('battle');
   }
 
   // ======================= 每帧更新 =======================
   update() {
+    // ★ 对话框打开时暂停游戏循环（玩家不能动、弓不自动射）
+    if (this.dialogOpen) return;
     if (this.gameEnded) return; // 已经结束了就不再做任何更新
 
     // 主角动起来
@@ -182,6 +205,122 @@ class GameScene extends Phaser.Scene {
 
     // 刷新顶部状态栏
     this.updateHUD();
+  }
+
+  /**
+   * Shift 键切换武器
+   * 只有同时持有剑和弓时才切换——如果只拿了一把武器就 Shift，什么都不做
+   */
+  _trySwitchWeapon() {
+    if (this.ownedWeapons.size < 2) return; // 没拿齐两把武器，切不了
+
+    const cur = this.player.weaponType;
+    // 候选列表 = 持有的武器 - 当前武器 = 另一把
+    const candidates = [...this.ownedWeapons].filter(w => w !== cur);
+    if (candidates.length === 0) return;
+
+    const next = candidates[0];
+    this.player.equipWeapon(next, true); // silent=true：不播金色闪光（快速切换）
+
+    // HUD 飘一个小提示，告诉玩家切成什么了
+    const labels = { sword: '切到 ⚔ 剑', bow: '切到 🏹 弓', fist: '切到 拳头' };
+    Utils.floatText(this, this.player.x, this.player.y - 50, labels[next] || next, '#ffd24d');
+
+    // 切到弓时，取消任何正在飞的箭（避免旧箭飞出去的同时又立刻射新箭）
+    if (next === 'bow') this.cancelFlyingArrow();
+    // 切到剑时，关闭自动弓射（updateBowAttack 会因为 weaponType !== 'bow' 自动跳过）
+
+    AudioUtils.sfxSwitchWeapon && AudioUtils.sfxSwitchWeapon(); // 切换音效（如果有的话）
+    this.updateHUD();
+  }
+
+  /**
+   * 第一次拿到弓时弹出的"美少女对话框"
+   *   - 屏幕右侧出现美少女立绘 + 左侧圆角对话框
+   *   - 告诉玩家按 Shift 可以在剑和弓之间切换
+   *   - 按任意键关闭
+   */
+  showBowDialog() {
+    this.dialogOpen = true;           // 暂停游戏循环
+    this.physics.pause();             // 物理引擎也暂停（防止玩家或怪继续动）
+    this.cancelFlyingArrow();         // 如有箭在飞直接取消
+
+    // ★ 暂停战斗 BGM（对话框期间不要背景音）
+    AudioUtils.pauseBgm && AudioUtils.pauseBgm();
+
+    // 对话框布局参数
+    const cx = CFG.width / 2;
+    const cy = CFG.height / 2;
+
+    // ---- 半透明暗幕（让玩家知道要先处理这个）----
+    const veil = this.add.rectangle(0, 0, CFG.width, CFG.height, 0x000000, 0.55)
+      .setOrigin(0).setDepth(50).setScrollFactor(0);
+
+    // ---- 美少女立绘（屏幕中央偏右）----
+    const girl = this.add.image(cx + 230, cy + 20, 'tex-archer-girl')
+      .setDepth(51).setScrollFactor(0);
+
+    // ---- 圆角对话框（左边半透明白底 + 黑描边）----
+    const boxW = 420, boxH = 220;
+    const boxX = cx - 210;  // 中心对齐
+    const boxY = cy - 110;
+    const dialog = this.add.graphics().setDepth(52).setScrollFactor(0);
+    // 外描边（黑色）
+    dialog.fillStyle(0x000000, 1);
+    dialog.fillRoundedRect(boxX - 3, boxY - 3, boxW + 6, boxH + 6, 18);
+    // 内底（半透明白）
+    dialog.fillStyle(0xffffff, 0.92);
+    dialog.fillRoundedRect(boxX, boxY, boxW, boxH, 15);
+
+    // ---- 对话文字 ----
+    const titleStyle = { fontFamily: 'sans-serif', fontSize: '22px', color: '#d93a7b', fontStyle: 'bold' };
+    const bodyStyle  = { fontFamily: 'sans-serif', fontSize: '17px', color: '#1a1a2e' };
+    const tipStyle   = { fontFamily: 'sans-serif', fontSize: '14px', color: '#6b6b80', fontStyle: 'italic' };
+
+    this.add.text(boxX + 24, boxY + 18, '♡ 弓之精灵 ♡', titleStyle)
+      .setDepth(53).setScrollFactor(0);
+
+    const lines = [
+      '勇者大人~ 我是守护之弓的精灵！',
+      '按 **Shift** 键可以在 **剑** 和 **弓** 之间切换哦！',
+      '剑适合近身劈砍，弓能远程狙击，灵活运用吧~'
+    ];
+    lines.forEach((txt, i) => {
+      // **加粗**的字用特殊颜色
+      const t = this.add.text(boxX + 24, boxY + 58 + i * 34, txt, bodyStyle)
+        .setDepth(53).setScrollFactor(0);
+    });
+
+    this.add.text(boxX + 24, boxY + boxH - 34, '按任意键继续...', tipStyle)
+      .setDepth(53).setScrollFactor(0);
+
+    // ---- 按键关闭 ----
+    // ★ Phaser 3 监听"任意键按下"的事件名就是 'keydown'（没有 -ANY 后缀！）
+    // 之前写成 'keydown-ANY' 根本不会触发 → 对话框卡死！
+    const closeHandler = () => {
+      if (!this.dialogOpen) return;
+      this.dialogOpen = false;
+      this.physics.resume();
+      AudioUtils.resumeBgm && AudioUtils.resumeBgm();
+
+      veil.destroy();
+      girl.destroy();
+      dialog.destroy();
+      // 清除所有 text 对象（depth=53 且是 Text）
+      this.children.list
+        .filter(c => c.depth === 53 && c.type === 'Text')
+        .forEach(t => t.destroy());
+
+      // ★ 关掉这个一次性监听（Phaser 里 removeListener 传原始事件名 + handler）
+      this.input.keyboard.removeListener('keydown', closeHandler);
+    };
+    this.input.keyboard.on('keydown', closeHandler);
+
+    // 加个小动画：立绘从右侧滑入 + 对话框淡入
+    girl.setX(CFG.width + 120).setAlpha(0);
+    this.tweens.add({ targets: girl, x: cx + 230, alpha: 1, duration: 350, ease: 'Quad.easeOut' });
+    dialog.setAlpha(0);
+    this.tweens.add({ targets: dialog, alpha: 1, duration: 250, delay: 100 });
   }
 
   /**
@@ -436,8 +575,14 @@ class GameScene extends Phaser.Scene {
       'tex-item-bow': 'bow'
     };
     if (weaponMap[texKey]) {
-      player.equipWeapon(weaponMap[texKey]);
+      const wType = weaponMap[texKey];
+      const wasNewBow = wType === 'bow' && !this.ownedWeapons.has('bow');
+      player.equipWeapon(wType);
+      this.ownedWeapons.add(wType);  // ★ 记录持有
       this.updateHUD(); // HUD 立刻刷新武器名
+
+      // ★ 第一次拿到弓：弹美少女立绘 + 对话框提示 Shift 切换
+      if (wasNewBow) this.showBowDialog();
     }
   }
 
@@ -563,7 +708,7 @@ class GameScene extends Phaser.Scene {
 
     // 底部操作提示
     this.add.text(CFG.width / 2, CFG.height - 10,
-      'WASD / 方向键沿路走 · 绿圈紫圈=能打，红圈=打不过，白圈=数值相同 · R 键重开本关', {
+      'WASD / 方向键沿路走 · ⚪白圈=数值相同挡路 · R=重开 · Shift=切换剑/弓', {
       fontFamily: 'sans-serif',
       fontSize: '15px',
       color: '#7d8aa5'

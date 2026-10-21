@@ -13,6 +13,12 @@ class MenuScene extends Phaser.Scene {
   create() {
     this.started = false; // 防止"点按钮 + 按空格"同时触发两次开始
 
+    // ★ 重置摄像机：固定到菜单视口（不跟随、不移动）
+    // 这样不管 GameScene 之前把摄像机跟到哪，回到菜单都能完整显示
+    this.cameras.main.stopFollow();
+    this.cameras.main.setBounds(0, 0, CFG.width, CFG.height);
+    this.cameras.main.setScroll(0, 0);
+
     // 背景（先画好，剧情覆盖层在它上面，播完就藏掉露出这个）
     this.add.rectangle(0, 0, CFG.width, CFG.height, CFG.color.bg).setOrigin(0);
 

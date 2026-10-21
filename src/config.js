@@ -44,7 +44,7 @@ const STORY = {
 const CFG = {
   // 画布尺寸（视口窗口：让视角显小，大地图需要摄像机跟随滚动）
   width: 960,
-  height: 540,
+  height: 640,  // 与地图高度 10×64=640 对齐，GameScene 地图正好铺满垂直方向
 
   // 顶部状态栏（HUD）占的高度。HUD 设 scrollFactor=0 不跟摄像机滚，始终固定在画面顶部。
   playTop: 48,
@@ -530,16 +530,49 @@ const AudioUtils = {
     if (!mel) { console.warn('[Audio] 未知 BGM:', name); return; }
 
     this.currentBgm = name;
+    this._bgmMelody = mel; // 保存旋律，pause/resume 时能用
     this.noteIndex = 0;
-    const beatMs = mel.beatMs || 280; // 每拍多少毫秒，决定节奏快慢
-    const dur = mel.duration || 0.22; // 每个音符持续秒数
+    this._scheduleBgmTimer(mel);
+  },
 
-    // 每拍播一个音符（null = 空拍/休止，跳过）
+  /** 内部：启动/重启 BGM 的 setInterval */
+  _scheduleBgmTimer(mel) {
+    const beatMs = mel.beatMs || 280;
+    const dur = mel.duration || 0.22;
     this.bgmTimer = setInterval(() => {
       const n = mel.notes[this.noteIndex];
       if (n) this.playNote(n, dur, 0.35, this.bgmGain);
       this.noteIndex = (this.noteIndex + 1) % mel.notes.length;
     }, beatMs);
+  },
+
+  /** 暂停 BGM（对话框/过场动画用） */
+  pauseBgm() {
+    if (this.bgmTimer) {
+      clearInterval(this.bgmTimer);
+      this.bgmTimer = null;
+      // 淡出音量
+      if (this.ctx && this.bgmGain) {
+        const now = this.ctx.currentTime;
+        this.bgmGain.gain.cancelScheduledValues(now);
+        this.bgmGain.gain.setValueAtTime(this.bgmGain.gain.value, now);
+        this.bgmGain.gain.linearRampToValueAtTime(0.08, now + 0.3);
+      }
+    }
+  },
+
+  /** 恢复 BGM（从暂停时的 noteIndex 继续） */
+  resumeBgm() {
+    if (!this._bgmMelody) return;
+    if (this.bgmTimer) return; // 已经在播了
+    // 恢复音量
+    if (this.ctx && this.bgmGain) {
+      const now = this.ctx.currentTime;
+      this.bgmGain.gain.cancelScheduledValues(now);
+      this.bgmGain.gain.setValueAtTime(this.bgmGain.gain.value, now);
+      this.bgmGain.gain.linearRampToValueAtTime(0.4, now + 0.2);
+    }
+    this._scheduleBgmTimer(this._bgmMelody);
   },
 
   /** 停掉当前 BGM（带 200ms 淡出，别太突然） */
@@ -597,6 +630,29 @@ const AudioUtils = {
       g.gain.linearRampToValueAtTime(0, t + 0.12);
       osc.connect(g); g.connect(this.sfxGain);
       osc.start(t); osc.stop(t + 0.13);
+    });
+  },
+
+  /** 切换武器音效：干净的"叮-铿"两音切换感 */
+  sfxSwitchWeapon() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    // 两个方波音符：第一个 784Hz（G5），第二个 587Hz（D5），短间隔
+    const notes = [
+      { f: 784, t: 0.0,  dur: 0.09 },
+      { f: 587, t: 0.08, dur: 0.11 }
+    ];
+    notes.forEach(n => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(n.f, now + n.t);
+      const g = this.ctx.createGain();
+      const start = now + n.t;
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(0.45, start + 0.004);
+      g.gain.linearRampToValueAtTime(0, start + n.dur);
+      osc.connect(g); g.connect(this.sfxGain);
+      osc.start(start); osc.stop(start + n.dur + 0.02);
     });
   },
 

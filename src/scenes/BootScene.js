@@ -46,13 +46,25 @@ const PIXEL_PALETTE = {
   P: 0x5f2ab3, // 深紫（魅魔裙子、靴子）
   e: 0xff9ec4, // 粉（魅魔犄角、裙摆）
   q: 0xffd3e3, // 浅粉（魅魔皮肤）
+  // ---- 美少女弓手专用颜色 ----
+  R: 0xff6bb6, // 樱粉（头发主色）
+  I: 0xffa0cc, // 浅樱粉（头发高光）
+  Y: 0xd93a7b, // 深樱粉（头发阴影、蝴蝶结）
+  C: 0xa64c8a, // 深紫粉（头发最深阴影、丝带暗部）
+  E: 0x3d8bff, // 蓝眼睛
+  T: 0x1c2f4a, // 深蓝瞳孔
+  f: 0xfff0f5, // 超浅粉（腮红、皮肤高光）
+  u: 0xd4af37, // 金色（耳环、头饰）
+  q: 0xffd3e3, // 浅粉（皮肤上色）
+  Q: 0xf7c2d1, // 深粉（腮红深色）
+  L: 0xff7eb8, // 亮粉（嘴唇、蝴蝶结亮部）
+  O: 0xfff9fc, // 近白色（头发最亮高光）
+  S: 0xff4444, // 红色（发带、丝带）
+  v: 0x9966cc, // 紫色宝石
   // ---- 6 种武器道具专用颜色 ----
   m: 0xc9cdd3, // 金属银（剑刃、箭头、玻璃高光、宝石高光）
   F: 0xb08a5a, // 青铜色（鼎身、剑柄装饰）
-  x: 0xf5e6b0, // 卷轴纸色（泛黄的古卷纸）
-  u: 0xd4af37, // 真金色（护符外框、剑护手、卷轴装饰边）
-  i: 0x4aa34a, // 深青绿（药瓶里的神秘液体）
-  v: 0x9966cc  // 紫色宝石（护符中心的魔晶）
+  x: 0xf5e6b0  // 卷轴纸色（泛黄的古卷纸）
 };
 
 // ---------------------------------------------------------
@@ -279,6 +291,35 @@ const ART_AMULET = [
   '................',
   '................',
   '................'
+];
+
+// 美少女弓手立绘：精致版！樱粉长发 + 大蓝眼睛 + 红蝴蝶结 + 金色耳环
+// 24 行 × 24 列（每行精确 24 字符），px=4 放大成 96×96 大头像
+const ART_ARCHER_GIRL = [
+  '......kkkkkkkkkkkkkkkk......', // 24
+  '....kkOIIIRRRRRRRRRIIIOkk...',
+  '...kIIRRRRRRRRRRRRRRRRIIk...',
+  '..kIRRRRRRRRRRRRRRRRRRRRIk..',
+  '..kRRYRRRRSSSSSSSSRRRYRRRk..', // S=红色丝带蝴蝶结
+  '.kRRYIRRRSLLLLLLSSRRIIRRYRk.',
+  'kRRRRRRRRRRRRRRRRRRRRRRRRRRk',
+  'kRRRRRRRRRRRRRRRRRRRRRRRRRRk',
+  'kRRRRRRRRRRRRRRRRRRRRRRRRRRk',
+  '.kRRRRRRRRRRRRRRRRRRRRRRRRk.',
+  '..kIIRRRRqqqqqqqqqqqqRRIIk..', // q=浅粉皮肤
+  '..kRRRRqqqqqqqqqqqqqqRRRRk..',
+  '..kRRqqQQqqqqqqqqqqQQqqRRk..', // Q=深粉腮红
+  '..kqqqqqqEwqqqqqqEwqqqqqqk..', // E=蓝眼 w=白色高光
+  '..kqqqqwTEwqqqqqqwTEwqqqqk..', // T=瞳孔
+  '..kqqqqqqqdddddddqqqqqqqqk..', // d=眼窝阴影
+  '..kqqqqqqqqqqqqqqqqqqqqqqk..',
+  '..kqqqqqqqqqLLLqqqqqqqqqqk..', // L=亮粉嘴唇
+  '..kqqqqqqqqqqqkqqqqqqqqqqk..',
+  '..kRRqqqqqqqqqqqqqqqqqqRRk..',
+  '..kRRRqqqqqqqqqqqqqqqqRRRk..',
+  '.kRRRRqqqqqqqqqqqqqqqqRRRRk.',
+  '.kRRRRRqqqqqqqqqqqqqqRRRRRk.',
+  '..kkkkkkkkkkkkkkkkkkkkkkk...'
 ];
 
 class BootScene extends Phaser.Scene {
@@ -544,6 +585,10 @@ class BootScene extends Phaser.Scene {
     arrow.fillTriangle(2, 4, 0, 8, 6, 5);
     arrow.generateTexture('tex-arrow-proj', 28, 8);
     arrow.destroy();
+
+    // ---- 美少女弓手立绘（对话框用）----
+    // 20×20 字符画 × 4px = 80×80 大头像
+    this.bakePixelArt('tex-archer-girl', ART_ARCHER_GIRL, 4);
   }
 
   /**
