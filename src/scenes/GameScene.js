@@ -58,13 +58,17 @@ class GameScene extends Phaser.Scene {
 
     const level = CFG.levels[this.levelIndex];
 
-    // ---------- 1) 地图外的底色 ----------
-    // 地图只占画面中间那一块（960 x 512），上下留白用深色铺满
-    this.add.rectangle(0, CFG.playTop, CFG.width, CFG.height - CFG.playTop, CFG.color.ground).setOrigin(0);
+    // ---------- 1) 背景：地图铺满整个世界 ----------
+    // 世界比视口大（1280×640 vs 960×540），摄像机跟随玩家滚动，
+    // 让"大地图、固定视口"的感觉出来。不需要额外画底色。
 
-    // ---------- 2) 把物理世界的边界设成"战场区域" ----------
-    // 这样谁都不会跑到顶部状态栏里去
-    this.physics.world.setBounds(0, CFG.playTop, CFG.width, CFG.height - CFG.playTop);
+    // ---------- 2) 把物理世界的边界设成"整张地图" ----------
+    // 地图真实尺寸 = 20列×64 × 10行×64 = 1280×640（比 960×540 视口大）
+    // 玩家移动时摄像机跟着滚，视口大小始终不变
+    const worldW = CFG.mapCols * CFG.tileSize; // 1280
+    const worldH = CFG.mapRows * CFG.tileSize; // 640
+    this.physics.world.setBounds(0, 0, worldW, worldH);
+    this.cameras.main.setBounds(0, 0, worldW, worldH);
 
     // ---------- 3) 解析字符画，并渲染成瓦片地图 ----------
     const data = Utils.parseMap(level.map); // { grid, start, spawns }
@@ -98,6 +102,11 @@ class GameScene extends Phaser.Scene {
     // ---------- 4) 主角：出生在字符画里的 'S' 格中心 ----------
     const startPos = Utils.cellCenter(data.start.col, data.start.row);
     this.player = new Player(this, startPos.x, startPos.y);
+
+    // ★ 摄像机跟随玩家
+    // 世界比视口大（1280×640 vs 960×540），玩家走到哪儿摄像机跟到哪儿
+    // 摄像机已经有 bounds（line 71），不会超出地图边界
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
     // 关卡间继承武器：如果上一关结束时拿着剑或弓，
     // 下一关主角出生后立刻装备上（silent=true 不播"学会挥剑!"的飘字，
@@ -528,9 +537,13 @@ class GameScene extends Phaser.Scene {
   // ======================= 界面 =======================
 
   // 创建顶部状态栏 + 底部提示 + 屏幕中央的大提示
+  // 所有 HUD 元素 setScrollFactor(0) —— 摄像机滚它们不动，始终固定在视口同一位置
   createHUD() {
+    const sf0 = { scrollFactorX: 0, scrollFactorY: 0 }; // 摄像机滚 HUD 不滚
+
     // 顶部黑色半透明条
-    this.add.rectangle(0, 0, CFG.width, CFG.playTop, CFG.color.hudBg, 0.55).setOrigin(0);
+    this.add.rectangle(0, 0, CFG.width, CFG.playTop, CFG.color.hudBg, 0.55)
+      .setOrigin(0).setScrollFactor(0);
 
     const hudStyle = {
       fontFamily: 'sans-serif',
@@ -539,22 +552,24 @@ class GameScene extends Phaser.Scene {
       fontStyle: 'bold'
     };
 
-    this.levelText = this.add.text(20, 24, '', hudStyle);                              // 左侧：第几关
-    this.powerText = this.add.text(CFG.width / 2 - 70, 24, '', hudStyle).setOrigin(0.5, 0); // 中间偏左：战力
+    this.levelText = this.add.text(20, 24, '', hudStyle).setScrollFactor(0);
+    this.powerText = this.add.text(CFG.width / 2 - 70, 24, '', hudStyle)
+      .setOrigin(0.5, 0).setScrollFactor(0);
     this.weaponText = this.add.text(CFG.width / 2 + 60, 24, '', {
       ...hudStyle, fontSize: '20px', color: '#ffd24d'
-    }).setOrigin(0.5, 0);                                                              // 中间偏右：当前武器
-    this.timeText = this.add.text(CFG.width - 20, 24, '', hudStyle).setOrigin(1, 0);   // 右侧：用时
+    }).setOrigin(0.5, 0).setScrollFactor(0);
+    this.timeText = this.add.text(CFG.width - 20, 24, '', hudStyle)
+      .setOrigin(1, 0).setScrollFactor(0);
 
     // 底部操作提示
     this.add.text(CFG.width / 2, CFG.height - 10,
-      'WASD / 方向键沿路走 · 绿圈紫圈=现在能打，红圈=打不过，白圈=数值相同 · R 键重开本关', {
+      'WASD / 方向键沿路走 · 绿圈紫圈=能打，红圈=打不过，白圈=数值相同 · R 键重开本关', {
       fontFamily: 'sans-serif',
       fontSize: '15px',
       color: '#7d8aa5'
-    }).setOrigin(0.5, 1);
+    }).setOrigin(0.5, 1).setScrollFactor(0);
 
-    // 屏幕中央的大提示（过关 / 死亡时显示），depth 设大一点保证盖在最上层
+    // 屏幕中央的大提示（过关 / 死亡时显示）
     this.tipText = this.add.text(CFG.width / 2, CFG.height / 2, '', {
       fontFamily: 'sans-serif',
       fontSize: '44px',
@@ -562,7 +577,7 @@ class GameScene extends Phaser.Scene {
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6
-    }).setOrigin(0.5).setDepth(10);
+    }).setOrigin(0.5).setDepth(10).setScrollFactor(0);
   }
 
   // 每帧刷新状态栏
